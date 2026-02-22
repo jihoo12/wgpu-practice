@@ -1,3 +1,4 @@
+use glam::{Mat4, Vec3};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::{
@@ -6,7 +7,6 @@ use winit::{
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     window::{Window, WindowId},
 };
-use glam::{Mat4, Vec3};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -17,14 +17,38 @@ struct Vertex {
 
 // 정육면체 정점 데이터 (8개만 정의)
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.5, -0.5,  0.5], color: [1.0, 0.0, 0.0] }, // 0
-    Vertex { position: [ 0.5, -0.5,  0.5], color: [0.0, 1.0, 0.0] }, // 1
-    Vertex { position: [ 0.5,  0.5,  0.5], color: [0.0, 0.0, 1.0] }, // 2
-    Vertex { position: [-0.5,  0.5,  0.5], color: [1.0, 1.0, 0.0] }, // 3
-    Vertex { position: [-0.5, -0.5, -0.5], color: [1.0, 0.0, 1.0] }, // 4
-    Vertex { position: [ 0.5, -0.5, -0.5], color: [0.0, 1.0, 1.0] }, // 5
-    Vertex { position: [ 0.5,  0.5, -0.5], color: [1.0, 1.0, 1.0] }, // 6
-    Vertex { position: [-0.5,  0.5, -0.5], color: [0.0, 0.0, 0.0] }, // 7
+    Vertex {
+        position: [-0.5, -0.5, 0.5],
+        color: [1.0, 0.0, 0.0],
+    }, // 0
+    Vertex {
+        position: [0.5, -0.5, 0.5],
+        color: [0.0, 1.0, 0.0],
+    }, // 1
+    Vertex {
+        position: [0.5, 0.5, 0.5],
+        color: [0.0, 0.0, 1.0],
+    }, // 2
+    Vertex {
+        position: [-0.5, 0.5, 0.5],
+        color: [1.0, 1.0, 0.0],
+    }, // 3
+    Vertex {
+        position: [-0.5, -0.5, -0.5],
+        color: [1.0, 0.0, 1.0],
+    }, // 4
+    Vertex {
+        position: [0.5, -0.5, -0.5],
+        color: [0.0, 1.0, 1.0],
+    }, // 5
+    Vertex {
+        position: [0.5, 0.5, -0.5],
+        color: [1.0, 1.0, 1.0],
+    }, // 6
+    Vertex {
+        position: [-0.5, 0.5, -0.5],
+        color: [0.0, 0.0, 0.0],
+    }, // 7
 ];
 
 // 정점을 연결할 순서 (인덱스)
@@ -36,7 +60,6 @@ const INDICES: &[u16] = &[
     3, 2, 6, 6, 7, 3, // 윗면
     4, 5, 1, 1, 0, 4, // 아랫면
 ];
-
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -68,12 +91,18 @@ impl State {
             ..Default::default()
         });
         let surface = instance.create_surface(window.clone()).unwrap();
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
-            compatible_surface: Some(&surface),
-            ..Default::default()
-        }).await.unwrap();
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                compatible_surface: Some(&surface),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
 
-        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor::default()).await.unwrap();
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default())
+            .await
+            .unwrap();
 
         let caps = surface.get_capabilities(&adapter);
         let config = wgpu::SurfaceConfiguration {
@@ -105,7 +134,9 @@ impl State {
         let aspect = config.width as f32 / config.height as f32;
         let proj = Mat4::perspective_rh(f32::to_radians(45.0), aspect, 0.1, 100.0);
         let view = Mat4::look_at_rh(Vec3::new(0.0, 1.0, 2.0), Vec3::ZERO, Vec3::Y);
-        let camera_uniform = CameraUniform { view_proj: proj * view };
+        let camera_uniform = CameraUniform {
+            view_proj: proj * view,
+        };
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -114,19 +145,20 @@ impl State {
         });
 
         // 셰이더와 버퍼를 연결하는 레이아웃
-        let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("camera_bind_group_layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("camera_bind_group_layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
 
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &camera_bind_group_layout,
@@ -175,8 +207,19 @@ impl State {
         });
 
         Self {
-            window, surface, device, queue, config, size,
-            render_pipeline, vertex_buffer, camera_buffer, camera_bind_group,rotation: 0.0,index_buffer,num_indices,
+            window,
+            surface,
+            device,
+            queue,
+            config,
+            size,
+            render_pipeline,
+            vertex_buffer,
+            camera_buffer,
+            camera_bind_group,
+            rotation: 0.0,
+            index_buffer,
+            num_indices,
         }
     }
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -186,13 +229,11 @@ impl State {
         let proj = Mat4::perspective_rh(f32::to_radians(45.0), aspect, 0.1, 100.0);
         let cam_x = self.rotation.sin() * 4.0;
         let cam_z = self.rotation.cos() * 4.0;
-        let view = Mat4::look_at_rh(
-            Vec3::new(cam_x, 1.0, cam_z),
-            Vec3::ZERO,
-            Vec3::Y,
-        );
+        let view = Mat4::look_at_rh(Vec3::new(cam_x, 1.0, cam_z), Vec3::ZERO, Vec3::Y);
 
-        let camera_uniform = CameraUniform { view_proj: proj * view };
+        let camera_uniform = CameraUniform {
+            view_proj: proj * view,
+        };
 
         self.queue.write_buffer(
             &self.camera_buffer,
@@ -200,41 +241,50 @@ impl State {
             bytemuck::cast_slice(&[camera_uniform]),
         );
 
-    // 2. 렌더링 로직
+        // 2. 렌더링 로직
         let output = self.surface.get_current_texture()?;
-        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Render Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.1, g: 0.2, b: 0.3, a: 1.0 }),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            multiview_mask: None,
-            ..Default::default()
-        });
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.1,
+                            g: 0.2,
+                            b: 0.3,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                multiview_mask: None,
+                ..Default::default()
+            });
 
-        render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
-        // ★ 수정된 부분: 인덱스 버퍼 설정 ★
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        // ★ 수정된 부분: draw 대신 draw_indexed 사용 ★
-        render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            // ★ 수정된 부분: 인덱스 버퍼 설정 ★
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            // ★ 수정된 부분: draw 대신 draw_indexed 사용 ★
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+        Ok(())
     }
-
-    self.queue.submit(std::iter::once(encoder.finish()));
-    output.present();
-    Ok(())
-}
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
@@ -246,24 +296,39 @@ impl State {
             let aspect = self.config.width as f32 / self.config.height as f32;
             let proj = Mat4::perspective_rh(f32::to_radians(45.0), aspect, 0.1, 100.0);
             let view = Mat4::look_at_rh(Vec3::new(0.0, 1.0, 2.0), Vec3::ZERO, Vec3::Y);
-            let camera_uniform = CameraUniform { view_proj: proj * view };
-            self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[camera_uniform]));
+            let camera_uniform = CameraUniform {
+                view_proj: proj * view,
+            };
+            self.queue.write_buffer(
+                &self.camera_buffer,
+                0,
+                bytemuck::cast_slice(&[camera_uniform]),
+            );
         }
     }
 }
 
 // App 구조체와 main 함수는 이전과 거의 동일하므로 생략하거나 기존 코드를 사용하세요.
-struct App { state: Option<State> }
+struct App {
+    state: Option<State>,
+}
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_none() {
-            let window = Arc::new(event_loop.create_window(Window::default_attributes()).unwrap());
+            let window = Arc::new(
+                event_loop
+                    .create_window(Window::default_attributes())
+                    .unwrap(),
+            );
             self.state = Some(pollster::block_on(State::new(window)));
         }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        let state = match self.state.as_mut() { Some(s) => s, None => return };
+        let state = match self.state.as_mut() {
+            Some(s) => s,
+            None => return,
+        };
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
@@ -283,7 +348,7 @@ impl ApplicationHandler for App {
     }
 
     // 이 부분은 비워두거나 제거해도 RedrawRequested 내의 호출이 우선됩니다.
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) { }
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {}
 }
 
 fn main() {
