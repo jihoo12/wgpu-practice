@@ -15,12 +15,28 @@ struct Vertex {
     color: [f32; 3],
 }
 
-// 3D 느낌을 위해 Z축 값이 포함된 삼각형
+// 정육면체 정점 데이터 (8개만 정의)
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [0.0, 1.0, 0.0], color: [1.0, 0.0, 0.0] },
-    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
-    Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
+    Vertex { position: [-0.5, -0.5,  0.5], color: [1.0, 0.0, 0.0] }, // 0
+    Vertex { position: [ 0.5, -0.5,  0.5], color: [0.0, 1.0, 0.0] }, // 1
+    Vertex { position: [ 0.5,  0.5,  0.5], color: [0.0, 0.0, 1.0] }, // 2
+    Vertex { position: [-0.5,  0.5,  0.5], color: [1.0, 1.0, 0.0] }, // 3
+    Vertex { position: [-0.5, -0.5, -0.5], color: [1.0, 0.0, 1.0] }, // 4
+    Vertex { position: [ 0.5, -0.5, -0.5], color: [0.0, 1.0, 1.0] }, // 5
+    Vertex { position: [ 0.5,  0.5, -0.5], color: [1.0, 1.0, 1.0] }, // 6
+    Vertex { position: [-0.5,  0.5, -0.5], color: [0.0, 0.0, 0.0] }, // 7
 ];
+
+// 정점을 연결할 순서 (인덱스)
+const INDICES: &[u16] = &[
+    0, 1, 2, 2, 3, 0, // 앞면
+    1, 5, 6, 6, 2, 1, // 오른쪽
+    5, 4, 7, 7, 6, 5, // 뒷면
+    4, 0, 3, 3, 7, 4, // 왼쪽
+    3, 2, 6, 6, 7, 3, // 윗면
+    4, 5, 1, 1, 0, 4, // 아랫면
+];
+
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -40,6 +56,8 @@ struct State {
     camera_bind_group: wgpu::BindGroup,
     window: Arc<Window>,
     rotation: f32,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
 }
 
 impl State {
@@ -75,6 +93,13 @@ impl State {
             contents: bytemuck::cast_slice(VERTICES),
             usage: wgpu::BufferUsages::VERTEX,
         });
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        let num_indices = INDICES.len() as u32;
 
         // --- 카메라 설정 ---
         let aspect = config.width as f32 / config.height as f32;
@@ -151,45 +176,39 @@ impl State {
 
         Self {
             window, surface, device, queue, config, size,
-            render_pipeline, vertex_buffer, camera_buffer, camera_bind_group,rotation: 0.0,
+            render_pipeline, vertex_buffer, camera_buffer, camera_bind_group,rotation: 0.0,index_buffer,num_indices,
         }
     }
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-    // 1. 매 프레임마다 회전 각도를 증가시킵니다.
+        // 1. 카메라 업데이트 로직 (기존과 동일)
         self.rotation += 0.02;
-
-    // 2. 증가한 각도를 바탕으로 새로운 카메라 행렬을 계산합니다.
         let aspect = self.config.width as f32 / self.config.height as f32;
         let proj = Mat4::perspective_rh(f32::to_radians(45.0), aspect, 0.1, 100.0);
-
-    // 요청하신 대로 sin, cos을 이용해 카메라를 원형 궤도로 이동시킵니다.
         let cam_x = self.rotation.sin() * 4.0;
         let cam_z = self.rotation.cos() * 4.0;
         let view = Mat4::look_at_rh(
-            Vec3::new(cam_x, 1.0, cam_z), // 카메라의 새 위치
-            Vec3::ZERO,                   // 중심(삼각형)을 바라봄
-            Vec3::Y,                      // 위쪽 방향 고정
+            Vec3::new(cam_x, 1.0, cam_z),
+            Vec3::ZERO,
+            Vec3::Y,
         );
 
         let camera_uniform = CameraUniform { view_proj: proj * view };
 
-    // 3. ★가장 중요한 단계: 계산된 새 행렬을 GPU 버퍼에 실제로 씁니다.
-    // 이 코드가 있어야만 화면에 변화가 생깁니다.
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[camera_uniform]),
         );
 
-    // --- 아래는 실제 그리기 로직 (기존과 동일) ---
+    // 2. 렌더링 로직
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            label: Some("Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &view,
                 resolve_target: None,
                 depth_slice: None,
@@ -202,17 +221,20 @@ impl State {
             ..Default::default()
         });
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.draw(0..VERTICES.len() as u32, 0..1);
-        }
+        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
-        self.queue.submit(std::iter::once(encoder.finish()));
-        output.present();
-        Ok(())
+        // ★ 수정된 부분: 인덱스 버퍼 설정 ★
+        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        // ★ 수정된 부분: draw 대신 draw_indexed 사용 ★
+        render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
     }
 
+    self.queue.submit(std::iter::once(encoder.finish()));
+    output.present();
+    Ok(())
+}
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
