@@ -19,51 +19,6 @@ struct Mesh {
     index_buffer: wgpu::Buffer,
     num_indices: u32,
 }
-// 정육면체 정점 데이터 (8개만 정의)
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [-0.5, -0.5, 0.5],
-        color: [1.0, 0.0, 0.0],
-    }, // 0
-    Vertex {
-        position: [0.5, -0.5, 0.5],
-        color: [0.0, 1.0, 0.0],
-    }, // 1
-    Vertex {
-        position: [0.5, 0.5, 0.5],
-        color: [0.0, 0.0, 1.0],
-    }, // 2
-    Vertex {
-        position: [-0.5, 0.5, 0.5],
-        color: [1.0, 1.0, 0.0],
-    }, // 3
-    Vertex {
-        position: [-0.5, -0.5, -0.5],
-        color: [1.0, 0.0, 1.0],
-    }, // 4
-    Vertex {
-        position: [0.5, -0.5, -0.5],
-        color: [0.0, 1.0, 1.0],
-    }, // 5
-    Vertex {
-        position: [0.5, 0.5, -0.5],
-        color: [1.0, 1.0, 1.0],
-    }, // 6
-    Vertex {
-        position: [-0.5, 0.5, -0.5],
-        color: [0.0, 0.0, 0.0],
-    }, // 7
-];
-
-// 정점을 연결할 순서 (인덱스)
-const INDICES: &[u16] = &[
-    0, 1, 2, 2, 3, 0, // 앞면
-    1, 5, 6, 6, 2, 1, // 오른쪽
-    5, 4, 7, 7, 6, 5, // 뒷면
-    4, 0, 3, 3, 7, 4, // 왼쪽
-    3, 2, 6, 6, 7, 3, // 윗면
-    4, 5, 1, 1, 0, 4, // 아랫면
-];
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -124,7 +79,8 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
-        let obj_mesh = Mesh::new(&device, VERTICES, INDICES);
+        let (graph_vertices, graph_indices) = generate_3d_graph();
+        let obj_mesh = Mesh::new(&device, &graph_vertices, &graph_indices);
         let size = window.inner_size();
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Depth Texture"),
@@ -462,6 +418,59 @@ impl Mesh {
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
     }
+}
+// 3차원 그래프의 정점과 인덱스를 생성하는 함수
+fn generate_3d_graph() -> (Vec<Vertex>, Vec<u16>) {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    let resolution = 50; // 50x50 격자 (총 2500개 정점, u16 인덱스 한계 내에 안전하게 들어옵니다)
+    let size = 10.0;     // 그래프의 가로세로 크기
+    let step = size / (resolution as f32 - 1.0);
+    let offset = size / 2.0;
+
+    // 1. 정점(Vertex) 생성
+    for z in 0..resolution {
+        for x in 0..resolution {
+            let px = (x as f32) * step - offset;
+            let pz = (z as f32) * step - offset;
+
+            // 3차원 함수 적용 (예: 물결 무늬)
+            // 중심으로부터의 거리를 구한 뒤 사인 함수를 적용합니다.
+            let distance = (px * px + pz * pz).sqrt();
+            let py = distance.sin();
+
+            // 높이(py)에 따라 색상을 다르게 지정 (-1.0 ~ 1.0 범위를 0.0 ~ 1.0으로 매핑)
+            let color = [0.0,0.0,0.0];
+
+            vertices.push(Vertex {
+                position: [px, py, pz],
+                color,
+            });
+        }
+    }
+
+    // 2. 인덱스(Index) 생성 (사각형 격자를 2개의 삼각형으로 쪼갬)
+    for z in 0..(resolution - 1) {
+        for x in 0..(resolution - 1) {
+            let top_left = z * resolution + x;
+            let top_right = top_left + 1;
+            let bottom_left = (z + 1) * resolution + x;
+            let bottom_right = bottom_left + 1;
+
+            // 첫 번째 삼각형
+            indices.push(top_left as u16);
+            indices.push(bottom_left as u16);
+            indices.push(top_right as u16);
+
+            // 두 번째 삼각형
+            indices.push(top_right as u16);
+            indices.push(bottom_left as u16);
+            indices.push(bottom_right as u16);
+        }
+    }
+
+    (vertices, indices)
 }
 fn main() {
     let event_loop = EventLoop::new().unwrap();
