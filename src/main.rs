@@ -4,7 +4,7 @@ use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
-    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowId},
 };
 
@@ -81,6 +81,7 @@ struct State {
     rotation: f32,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
+    depth_texture_view: wgpu::TextureView,
 }
 
 impl State {
@@ -129,6 +130,24 @@ impl State {
             usage: wgpu::BufferUsages::INDEX,
         });
         let num_indices = INDICES.len() as u32;
+
+        let size = window.inner_size();
+        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Depth Texture"),
+            size: wgpu::Extent3d {
+                width: size.width,
+                height: size.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float, // 깊이 값을 저장할 포맷
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let depth_texture_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // --- 카메라 설정 ---
         let aspect = config.width as f32 / config.height as f32;
@@ -199,8 +218,14 @@ impl State {
                 })],
                 compilation_options: Default::default(),
             }),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less, // 더 가까운 것만 그리기
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
@@ -220,6 +245,7 @@ impl State {
             rotation: 0.0,
             index_buffer,
             num_indices,
+            depth_texture_view,
         }
     }
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -241,7 +267,6 @@ impl State {
             bytemuck::cast_slice(&[camera_uniform]),
         );
 
-        // 2. 렌더링 로직
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -267,31 +292,53 @@ impl State {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
+                // ★ 깊이 스텐실 첨부 추가 ★
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture_view, // 미리 생성해둔 뷰
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0), // 가장 먼 거리로 초기화
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 multiview_mask: None,
-                ..Default::default()
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-
-            // ★ 수정된 부분: 인덱스 버퍼 설정 ★
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            // ★ 수정된 부분: draw 대신 draw_indexed 사용 ★
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16); //
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1); //
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
         Ok(())
     }
+    // 2. 렌더링 로직
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
-
+            let depth_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Depth Texture"),
+                size: wgpu::Extent3d {
+                    width: new_size.width,
+                    height: new_size.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth32Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            self.depth_texture_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
             // 창 크기가 바뀌면 투영 행렬도 다시 계산해서 업데이트해야 합니다.
             let aspect = self.config.width as f32 / self.config.height as f32;
             let proj = Mat4::perspective_rh(f32::to_radians(45.0), aspect, 0.1, 100.0);
