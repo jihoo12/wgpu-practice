@@ -398,15 +398,6 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 state.is_dragging = button_state == winit::event::ElementState::Pressed;
-            }
-
-            WindowEvent::MouseInput {
-                state: button_state,
-                button: winit::event::MouseButton::Left,
-                ..
-            } => {
-                state.is_dragging = button_state == winit::event::ElementState::Pressed;
-                // 클릭을 떼면 마지막 위치 정보를 초기화하여 다음 클릭 시 튀는 현상을 방지합니다.
                 if !state.is_dragging {
                     state.last_mouse_pos = None;
                 }
